@@ -1,5 +1,65 @@
 const Abi = require('web3-eth-abi')
 
+/**
+* @typedef {Object} Log
+* @property {number} blockNumber
+* @property {string} blockHash
+* @property {number} transactionIndex
+* @property {boolean} removed
+* @property {number} transactionLogIndex
+* @property {string} address
+* @property {string} data
+* @property {string[]} topics
+* @property {string} transactionHash
+* @property {number} logIndex
+*/
+
+/**
+* @typedef {Object} Input 
+* @property {string} internalType
+* @property {string} name
+* @property {string} type
+* @property {boolean} indexed
+*/
+
+/**
+* @typedef {Object} Output 
+* @property {string} internalType
+* @property {string} name
+* @property {string} type
+* @property {boolean} indexed
+*/
+
+/**
+* @typedef {Object} ContractAbi
+* @property {boolean} constant
+* @property {Input[]} inputs
+* @property {string} name
+* @property {Output[]} outputs
+* @property {number} payable
+* @property {string} stateMutability
+* @property {string} type
+* @property {boolean} anonymous
+*/
+
+/**
+* @typedef {Object} ContractAbi
+* @property {boolean} constant
+* @property {Input[]} inputs
+* @property {string} name
+* @property {Output[]} outputs
+* @property {number} payable
+* @property {string} stateMutability
+* @property {string} type
+* @property {boolean} anonymous
+*/
+
+/**
+* Indexed type
+*
+* @param {string} type type
+* @returns {string} indexed type
+*/
 const indexedType = (type) => {
     const availableTypes = ['uint', 'int', 'byte', 'bool', 'address', '[]'];
     for (const availableType of availableTypes) {
@@ -10,6 +70,14 @@ const indexedType = (type) => {
     return "bytes32";
 };
 
+/**
+* Decode parameters
+*
+* @param {string[]} names log names
+* @param {string[]} types log types
+* @param {string} data log data
+* @returns {Object} decoded parameters
+*/
 const decodeParameters = (names, types, data) => {
     const decoded = {};
     if (names.length && names.length === types.length) {
@@ -21,13 +89,20 @@ const decodeParameters = (names, types, data) => {
     return decoded;
 }
 
-const argsParser = (input) => {
+/**
+* Arguments parser
+*
+* @param {Log} log Ethereum log
+* @param {Input[]} inputs ABI item Inputs 
+* @returns {Array} Parsed logs
+*/
+const argsParser = (log, inputs) => {
     const indexedNames = [];
     const indexedTypes = [];
     const nonIndexedNames = [];
     const nonIndexedTypes = [];
 
-    input.forEach(({ indexed, name, type }) => {
+    inputs.forEach(({ indexed, name, type }) => {
         if (indexed) {
             indexedNames.push(name);
             indexedTypes.push(indexedType(type));
@@ -37,39 +112,46 @@ const argsParser = (input) => {
         }
     });
 
-    return ({ topics, data }) => {
-        const indexedData = topics.slice(1).map(t => t.slice(2)).join('');
-        const nonIndexedData = data.slice(2);
-        return {
-            ...decodeParameters(indexedNames, indexedTypes, indexedData),
-            ...decodeParameters(nonIndexedNames, nonIndexedTypes, nonIndexedData),
-        };
+    const { topics, data } = log;
+    const indexedData = topics.slice(1).map(t => t.slice(2)).join('');
+    const nonIndexedData = data.slice(2);
+    return {
+        ...decodeParameters(indexedNames, indexedTypes, indexedData),
+        ...decodeParameters(nonIndexedNames, nonIndexedTypes, nonIndexedData),
     };
 }
 
-const parseLogs = (logs, contractAbi) => {
-    const _contractAbi = contractAbi.filter((i) => !i.anonymous);
-    const events = _contractAbi.map(item => {
-        return {
-            name: item.name,
-            signature: Abi.encodeEventSignature(`${item.name}(${item.inputs.map((i) => i.type).join(",")})`),
-            args: argsParser(item.inputs),
-        };
-    });
+/**
+* Parse logs to readable form
+* 
+* @param {Log[]} logs Ethereum logs
+* @param {ContractAbi[]} abi Contract ABI
+* @returns {Array} Parsed logs
+*/
+const parseLogs = (logs, abi) => {
+    const events = abi
+        .filter((i) => !i.anonymous)
+        .map(item => {
+            return {
+                name: item.name,
+                signature: Abi.encodeEventSignature(`${item.name}(${item.inputs.map((i) => i.type).join(",")})`),
+                inputs: item.inputs,
+            };
+        });
 
-    const result = events.reduce((values1, event) => {
-        const value1 = logs.reduce((values2, log) => {
-            if (log.topics[0] !== event.signature) { return values2; };
-            const value2 = {
+    const result = events.reduce((eventsValues, event) => {
+        const eventsValue = logs.reduce((logsValues, log) => {
+            if (log.topics[0] !== event.signature) { return logsValues; };
+            const logsValue = {
                 name: event.name,
-                args: event.args(log),
+                args: argsParser(log, event.inputs),
                 source: log,
             };
-            values2.push(value2);
-            return values2;
+            logsValues.push(logsValue);
+            return logsValues;
         }, []);
-        values1.push(...value1);
-        return values1;
+        eventsValues.push(...eventsValue);
+        return eventsValues;
     }, []);
     return result;
 }
