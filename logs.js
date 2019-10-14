@@ -132,26 +132,31 @@ const parseLogs = (logs, abi) => {
     const events = abi
         .filter((i) => !i.anonymous)
         .map(item => {
+            const inputs = item.inputs || [];
             return {
                 name: item.name,
-                signature: Abi.encodeEventSignature(`${item.name}(${item.inputs.map((i) => i.type).join(",")})`),
-                inputs: item.inputs,
+                signature: Abi.encodeEventSignature(`${item.name}(${inputs.map((i) => i.type).join(",")})`),
+                args: argsParser(inputs),
             };
         });
 
-    const result = events.reduce((eventsValues, event) => {
-        const eventsValue = logs.reduce((logsValues, log) => {
-            if (log.topics[0] !== event.signature) { return logsValues; };
-            const logsValue = {
+    const result = logs.reduce((values1, log) => {
+        const value1 = events.reduce((values2, event) => {
+            if (log.topics[0] !== event.signature) { return values2; };
+            const value2 = {
                 name: event.name,
-                args: argsParser(log, event.inputs),
+                address: log.address,
+                blockNumber: log.blockNumber,
+                blockHash: log.blockHash,
+                transactionHash: log.transactionHash,
+                args: event.args(log),
                 source: log,
             };
-            logsValues.push(logsValue);
-            return logsValues;
+            values2.push(value2);
+            return values2;
         }, []);
-        eventsValues.push(...eventsValue);
-        return eventsValues;
+        values1.push(...value1);
+        return values1;
     }, []);
     return result;
 }
